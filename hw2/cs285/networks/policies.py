@@ -59,9 +59,11 @@ class MLPPolicy(nn.Module):
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         """Takes a single observation (as a numpy array) and returns a single action (as a numpy array)."""
         # TODO: implement get_action
-        action = None
+        obs = ptu.from_numpy(obs)
+        action_dist = self.forward(obs)
+        action = action_dist.sample()
 
-        return action
+        return ptu.to_numpy(action)
 
     def forward(self, obs: torch.FloatTensor):
         """
@@ -69,13 +71,15 @@ class MLPPolicy(nn.Module):
         able to differentiate through it. For example, you can return a torch.FloatTensor. You can also return more
         flexible objects, such as a `torch.distributions.Distribution` object. It's up to you!
         """
+        action_dist = None
         if self.discrete:
             # TODO: define the forward pass for a policy with a discrete action space.
-            pass
+            action_dist = distributions.Categorical(logits=self.logits_net(obs))
         else:
             # TODO: define the forward pass for a policy with a continuous action space.
-            pass
-        return None
+            action_dist = distributions.Normal(self.mean_net(obs), torch.exp(self.logstd))
+
+        return action_dist
 
     def update(self, obs: np.ndarray, actions: np.ndarray, *args, **kwargs) -> dict:
         """Performs one iteration of gradient descent on the provided batch of data."""
@@ -97,8 +101,21 @@ class MLPPolicyPG(MLPPolicy):
         advantages = ptu.from_numpy(advantages)
 
         # TODO: implement the policy gradient actor update.
-        loss = None
+        # PG
+        # new_param += lr * log(prob(a|s)) * adv
+        action_dist = self.forward(obs)        
+        log_probs = action_dist.log_prob(actions)
+        
+        # log_probs for multi dim actions => sum
+        if not self.discrete:
+            log_probs = log_probs.sum(axis=1)
 
+        loss = - (log_probs * advantages).mean()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
         return {
             "Actor Loss": ptu.to_numpy(loss),
         }
